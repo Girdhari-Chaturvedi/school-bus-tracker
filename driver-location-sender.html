@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bus Driver - Location Sender</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: Arial, sans-serif;
+    background: #f4f6f8;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    margin: 0;
+    padding: 20px;
+  }
+  .card {
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+    padding: 30px;
+    max-width: 400px;
+    width: 100%;
+    text-align: center;
+  }
+  h1 { font-size: 22px; color: #1a1a1a; margin-bottom: 5px; }
+  p.subtitle { color: #666; font-size: 14px; margin-bottom: 25px; }
+  input {
+    width: 100%;
+    padding: 12px;
+    margin-bottom: 15px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    font-size: 15px;
+  }
+  button {
+    width: 100%;
+    padding: 14px;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: 0.2s;
+  }
+  #startBtn { background: #22c55e; color: white; }
+  #startBtn:hover { background: #16a34a; }
+  #stopBtn { background: #ef4444; color: white; margin-top: 10px; display: none; }
+  #stopBtn:hover { background: #dc2626; }
+  #status {
+    margin-top: 20px;
+    padding: 12px;
+    border-radius: 8px;
+    font-size: 14px;
+    background: #f1f5f9;
+    color: #334155;
+    word-break: break-word;
+  }
+  .dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-right: 6px;
+  }
+  .live { background: #22c55e; animation: pulse 1.5s infinite; }
+  .off { background: #94a3b8; }
+  .err { background: #ef4444; }
+  @keyframes pulse {
+    0% { opacity: 1; } 50% { opacity: 0.4; } 100% { opacity: 1; }
+  }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <h1>🚌 Bus Location Sharing</h1>
+  <p class="subtitle">Driver panel — apna Bus ID daalo aur sharing start karo</p>
+
+  <input type="text" id="busId" placeholder="Bus ID (e.g. BUS01)" value="BUS01">
+  <button id="startBtn" onclick="startSharing()">Start Sharing Location</button>
+  <button id="stopBtn" onclick="stopSharing()">Stop Sharing</button>
+
+  <div id="status"><span class="dot off"></span>Sharing band hai</div>
+</div>
+
+<!-- Firebase compat build served from jsdelivr (gstatic blocked in this environment) -->
+<script src="https://cdn.jsdelivr.net/npm/firebase@10.12.2/firebase-app-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/firebase@10.12.2/firebase-database-compat.js"></script>
+
+<script>
+  var firebaseConfig = {
+    apiKey: "AIzaSyAVa0W9QRk2p_YugfM4GBoodxEpax2AqaA",
+    authDomain: "school-bus-tracker-63ce2.firebaseapp.com",
+    databaseURL: "https://school-bus-tracker-63ce2-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "school-bus-tracker-63ce2",
+    storageBucket: "school-bus-tracker-63ce2.firebasestorage.app",
+    messagingSenderId: "1036649845223",
+    appId: "1:1036649845223:web:1349c2566f717ecc04ad42"
+  };
+
+  var db = null;
+  var watchId = null;
+
+  try {
+    firebase.initializeApp(firebaseConfig);
+    db = firebase.database();
+  } catch (e) {
+    setStatus("Firebase load error: " + e.message, "err");
+  }
+
+  function setStatus(html, dotClass) {
+    document.getElementById('status').innerHTML =
+      '<span class="dot ' + dotClass + '"></span>' + html;
+  }
+
+  function startSharing() {
+    if (!db) {
+      setStatus("Firebase load nahi hua — page refresh karo.", "err");
+      return;
+    }
+    var busId = document.getElementById('busId').value.trim();
+    if (!busId) {
+      alert("Pehle Bus ID daalo!");
+      return;
+    }
+    if (!navigator.geolocation) {
+      setStatus("Ye browser location support nahi karta.", "err");
+      return;
+    }
+    if (location.protocol !== "https:" && location.hostname !== "localhost") {
+      setStatus("Location sirf HTTPS site pe kaam karega. Is file ko GitHub Pages ya kisi HTTPS host pe daalo.", "err");
+      return;
+    }
+
+    watchId = navigator.geolocation.watchPosition(
+      function (position) {
+        var lat = position.coords.latitude;
+        var lng = position.coords.longitude;
+        var speed = position.coords.speed || 0;
+        var timestamp = new Date().toISOString();
+
+        db.ref('buses/' + busId).set({
+          lat: lat,
+          lng: lng,
+          speed: speed,
+          lastUpdated: timestamp
+        }).then(function () {
+          setStatus("Live: " + lat.toFixed(5) + ", " + lng.toFixed(5), "live");
+        }).catch(function (err) {
+          setStatus("Firebase error: " + err.message, "err");
+        });
+      },
+      function (error) {
+        setStatus("GPS error: " + error.message, "err");
+      },
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
+    );
+
+    document.getElementById('startBtn').style.display = 'none';
+    document.getElementById('stopBtn').style.display = 'block';
+  }
+
+  function stopSharing() {
+    if (watchId !== null) {
+      navigator.geolocation.clearWatch(watchId);
+      watchId = null;
+    }
+    setStatus("Sharing band hai", "off");
+    document.getElementById('startBtn').style.display = 'block';
+    document.getElementById('stopBtn').style.display = 'none';
+  }
+</script>
+
+</body>
+</html>
